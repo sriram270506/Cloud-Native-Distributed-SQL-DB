@@ -1,0 +1,49 @@
+erDiagram
+  CLIENT {
+    string client_id PK
+    string name
+    string metadata
+  }
+
+  SESSION {
+    string session_id PK
+    string client_id FK
+    timestamp start_ts
+    timestamp end_ts
+  }
+
+  TRANSACTION {
+    string tx_id PK
+    string session_id FK
+    timestamp start_ts
+    timestamp commit_ts NULL
+    string status
+  }
+
+  TABLE {
+    string table_id PK
+    string name
+    string schema_json
+  }
+
+  ROW {
+    string row_id PK
+    string table_id FK
+    string primary_key_val
+  }
+
+  MVCC_VERSION {
+    string version_id PK
+    string row_id FK
+    string tx_id FK
+    int version_num
+    json data
+    bool deleted
+  }
+
+  CLIENT ||--o{ SESSION : "opens (1..*)"
+  CLIENT ||--o{ TRANSACTION : "initiates (0..*)"
+  SESSION ||--o{ TRANSACTION : "starts (0..*)"
+  TABLE ||--o{ ROW : "contains (1..*)"
+  ROW ||--o{ MVCC_VERSION : "has versions (1..*)"
+  TRANSACTION ||--o{ MVCC_VERSION : "writes (0..*)"

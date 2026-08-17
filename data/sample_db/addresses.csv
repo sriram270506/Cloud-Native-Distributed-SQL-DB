@@ -1,0 +1,11 @@
+address_id,customer_id,line1,line2,city,state,postal_code,country,type
+1,1,123 Maple St,,Springfield,IL,62701,USA,home
+2,2,456 Oak Ave,,Madison,WI,53703,USA,home
+3,3,789 Pine Rd,,Columbus,OH,43085,USA,home
+4,4,12 Birch Ln,,Austin,TX,73301,USA,home
+5,5,34 Cedar Blvd,,Denver,CO,80014,USA,home
+6,6,56 Elm St,,Seattle,WA,98101,USA,work
+7,7,78 Aspen Way,,Portland,OR,97201,USA,home
+8,8,90 Walnut Dr,,San Diego,CA,92101,USA,work
+9,9,101 Cherry Ct,,Raleigh,NC,27601,USA,home
+10,10,202 Poplar Pl,,Orlando,FL,32801,USA,home

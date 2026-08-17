@@ -1,0 +1,55 @@
+classDiagram
+  class Client {
+    +string client_id
+    +connect()
+    +startSession()
+  }
+
+  class Session {
+    +string session_id
+    +start_ts
+    +end_ts
+    +beginTransaction()
+  }
+
+  class Transaction {
+    +string tx_id
+    +string session_id
+    +start_ts
+    +commit_ts
+    +status
+    +prepare()
+    +commit()
+  }
+
+  class Table {
+    +string table_id
+    +string name
+  }
+
+  class Row {
+    +string row_id
+    +string table_id
+  }
+
+  class MVCCVersion {
+    +string version_id
+    +string row_id
+    +string tx_id
+    +int version
+    +json data
+    +bool deleted
+  }
+
+  class RaftNode {
+    +string node_id
+    +string role
+    +applyLogEntry()
+  }
+
+  Client "1" -- "*" Session : opens
+  Session "1" -- "*" Transaction : starts
+  Table "1" -- "*" Row : contains
+  Row "1" -- "*" MVCCVersion : versioned_by
+  Transaction "1" -- "*" MVCCVersion : writes
+  RaftNode "1" -- "*" Transaction : replicates

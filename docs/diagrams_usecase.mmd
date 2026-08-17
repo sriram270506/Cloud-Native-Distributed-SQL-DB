@@ -1,0 +1,16 @@
+%%{init: {'theme':'default'}}%%
+usecaseDiagram
+  actor User
+  actor ClusterAdmin
+
+  User --> (Submit Transaction)
+  User --> (Query Data)
+  User --> (Start Client Session)
+
+  ClusterAdmin --> (Add/Remove Node)
+  ClusterAdmin --> (Rebalance Shards)
+  ClusterAdmin --> (Run Repair / Snapshot)
+
+  (Submit Transaction) ..> (MVCC Conflict Detection) : <<includes>>
+  (Submit Transaction) ..> (Commit via Raft) : <<includes>>
+  (Query Data) ..> (MVCC Read Snapshot) : <<includes>>
