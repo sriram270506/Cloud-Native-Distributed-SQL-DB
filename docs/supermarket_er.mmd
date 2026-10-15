@@ -1,0 +1,68 @@
+erDiagram
+  CUSTOMERS {
+    int customer_id PK
+    string first_name
+    string last_name
+    string email UK
+    date created_at
+    date updated_at
+    string status
+  }
+
+  ADDRESSES {
+    int address_id PK
+    int customer_id FK
+    string line1
+    string line2
+    string city
+    string state
+    string postal_code
+    string country
+    string type
+  }
+
+  PRODUCTS {
+    int product_id PK
+    string product_name
+    string category
+    decimal unit_price
+    int stock_qty
+    date created_at
+    date updated_at
+  }
+
+  ORDERS {
+    int order_id PK
+    int customer_id FK
+    date order_date
+    decimal total_amount
+    string status
+    date created_at
+    date updated_at
+  }
+
+  ORDER_ITEMS {
+    int order_item_id PK
+    int order_id FK
+    int product_id FK
+    int quantity
+    decimal unit_price
+    decimal line_total
+    date created_at
+  }
+
+  PAYMENTS {
+    int payment_id PK
+    int order_id FK
+    string method
+    decimal amount
+    date paid_at
+    string status
+    string transaction_ref UK
+  }
+
+  CUSTOMERS ||--o{ ADDRESSES : has
+  CUSTOMERS ||--o{ ORDERS : places
+  ORDERS ||--|{ ORDER_ITEMS : contains
+  PRODUCTS ||--o{ ORDER_ITEMS : appears_in
+  ORDERS ||--o{ PAYMENTS : receives

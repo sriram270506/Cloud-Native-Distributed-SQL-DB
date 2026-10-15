@@ -1,6 +1,8 @@
--- E-commerce schema derived from provided ER diagram
+-- Supermarket relational schema used by the sample dataset.
+-- The application stores the corresponding tables as customers, addresses,
+-- products, orders, order_items, and payments.
 
-CREATE TABLE customer (
+CREATE TABLE customers (
   customer_id INTEGER PRIMARY KEY,
   first_name TEXT,
   last_name TEXT,
@@ -10,9 +12,9 @@ CREATE TABLE customer (
   status TEXT
 );
 
-CREATE TABLE address (
+CREATE TABLE addresses (
   address_id INTEGER PRIMARY KEY,
-  customer_id INTEGER REFERENCES customer(customer_id),
+  customer_id INTEGER REFERENCES customers(customer_id),
   line1 TEXT,
   line2 TEXT,
   city TEXT,
@@ -22,7 +24,7 @@ CREATE TABLE address (
   type TEXT
 );
 
-CREATE TABLE product (
+CREATE TABLE products (
   product_id INTEGER PRIMARY KEY,
   product_name TEXT,
   category TEXT,
@@ -32,9 +34,9 @@ CREATE TABLE product (
   updated_at DATE
 );
 
-CREATE TABLE "order" (
+CREATE TABLE orders (
   order_id INTEGER PRIMARY KEY,
-  customer_id INTEGER REFERENCES customer(customer_id),
+  customer_id INTEGER REFERENCES customers(customer_id),
   order_date DATE,
   total_amount REAL,
   status TEXT,
@@ -42,19 +44,19 @@ CREATE TABLE "order" (
   updated_at DATE
 );
 
-CREATE TABLE order_item (
+CREATE TABLE order_items (
   order_item_id INTEGER PRIMARY KEY,
-  order_id INTEGER REFERENCES "order"(order_id),
-  product_id INTEGER REFERENCES product(product_id),
+  order_id INTEGER REFERENCES orders(order_id),
+  product_id INTEGER REFERENCES products(product_id),
   quantity INTEGER,
   unit_price REAL,
   line_total REAL,
   created_at DATE
 );
 
-CREATE TABLE payment (
+CREATE TABLE payments (
   payment_id INTEGER PRIMARY KEY,
-  order_id INTEGER REFERENCES "order"(order_id),
+  order_id INTEGER REFERENCES orders(order_id),
   method TEXT,
   amount REAL,
   paid_at DATE,

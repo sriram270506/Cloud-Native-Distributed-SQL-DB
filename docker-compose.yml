@@ -1,0 +1,16 @@
+services:
+  cndsdb:
+    build: .
+    command: ["-port", "8080", "-nodes", "3", "-data", "/var/lib/cndsdb"]
+    ports:
+      - "8080:8080"
+    volumes:
+      - cndsdb-data:/var/lib/cndsdb
+    healthcheck:
+      test: ["CMD", "/cndsdb", "-help"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+volumes:
+  cndsdb-data:

@@ -1,0 +1,49 @@
+classDiagram
+  class Customer {
+    +customer_id
+    +first_name
+    +last_name
+    +email
+    +status
+  }
+  class Address {
+    +address_id
+    +customer_id
+    +city
+    +state
+    +type
+  }
+  class Product {
+    +product_id
+    +product_name
+    +category
+    +unit_price
+    +stock_qty
+  }
+  class Order {
+    +order_id
+    +customer_id
+    +order_date
+    +total_amount
+    +status
+  }
+  class OrderItem {
+    +order_item_id
+    +order_id
+    +product_id
+    +quantity
+    +unit_price
+    +line_total
+  }
+  class Payment {
+    +payment_id
+    +order_id
+    +method
+    +amount
+    +status
+  }
+  Customer "1" --> "0..*" Address : owns
+  Customer "1" --> "0..*" Order : places
+  Order "1" --> "1..*" OrderItem : contains
+  Product "1" --> "0..*" OrderItem : sold as
+  Order "1" --> "0..*" Payment : paid by

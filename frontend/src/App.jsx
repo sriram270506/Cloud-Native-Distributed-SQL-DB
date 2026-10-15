@@ -1,135 +1,171 @@
-import React, {useEffect, useState} from 'react'
-import initSqlJs from 'sql.js'
+import React, {useEffect, useMemo, useState} from 'react'
 
-const TABLE_FILES = {
-  customers: 'customers.csv',
-  addresses: 'addresses.csv',
-  products: 'products.csv',
-  orders: 'orders.csv',
-  order_items: 'order_items.csv',
-  payments: 'payments.csv'
-}
+const API = 'http://localhost:8080'
+const SAMPLE_FILES = ['customers', 'addresses', 'products', 'orders', 'order_items', 'payments']
 
-function parseCSV(text){
-  const lines = text.trim().split('\n')
-  const hdr = lines[0].split(',').map(h=>h.trim())
-  return lines.slice(1).map(l=>{
-    // simple split, acceptable for sample data
-    const cols = l.split(',')
-    const obj = {}
-    hdr.forEach((h,i)=> obj[h]=cols[i]===undefined?null:cols[i])
-    return obj
+function parseCSV(text) {
+  const lines = text.trim().split(/\r?\n/)
+  const headers = lines.shift().split(',').map(value => value.trim())
+  return lines.filter(Boolean).map(line => {
+    const values = line.split(',')
+    return headers.reduce((row, header, index) => ({...row, [header]: values[index] ?? ''}), {})
   })
 }
 
-function escapeSql(v){
-  if(v===null||v===undefined) return 'NULL'
-  return "'"+String(v).replace(/'/g,"''")+"'"
+function quote(value) {
+  return `'${String(value ?? '').replace(/'/g, "''")}'`
 }
 
-export default function App(){
-  const [db, setDb] = useState(null)
-  const [sql, setSql] = useState('SELECT * FROM customers LIMIT 50')
+function createInsert(table, columns, row) {
+  return `INSERT INTO ${table} (${columns.join(', ')}) VALUES (${columns.map(column => quote(row[column])).join(', ')})`
+}
+
+export default function App() {
+  const [sql, setSql] = useState('SELECT category, COUNT(*) AS products, SUM(stock_qty) AS units FROM products GROUP BY category ORDER BY units DESC')
   const [result, setResult] = useState(null)
-  const [err, setErr] = useState(null)
-  const [status, setStatus] = useState('initializing')
   const [tables, setTables] = useState([])
+  const [status, setStatus] = useState('Checking connection')
+  const [message, setMessage] = useState('')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
 
-  useEffect(()=>{
-    let mounted = true
-    ;(async()=>{
-      try{
-        const SQL = await initSqlJs({locateFile:file=>`/node_modules/sql.js/dist/${file}`})
-        const db = new SQL.Database()
-        // load CSVs and create tables
-        for(const [tbl,file] of Object.entries(TABLE_FILES)){
-          setStatus(`loading ${file}`)
-          const resp = await fetch(`/data/sample_db/${file}`)
-          if(!resp.ok){ console.warn('missing', file); continue }
-          const txt = await resp.text()
-          const rows = parseCSV(txt).filter(r=> Object.keys(r).length>0)
-          if(rows.length===0) continue
-          const cols = Object.keys(rows[0])
-          const createCols = cols.map(c=>`\"${c}\" TEXT`).join(',')
-          // create table without quoting table name to avoid case-sensitive identifiers
-          db.run(`CREATE TABLE IF NOT EXISTS ${tbl} (${createCols});`)
-          const insertStmt = db.prepare(`INSERT INTO ${tbl} VALUES (${cols.map(_=>'?').join(',')})`)
-          db.run('BEGIN')
-          for(const r of rows){
-            const vals = cols.map(c=> r[c])
-            insertStmt.run(vals)
-          }
-          db.run('COMMIT')
-          insertStmt.free()
-        }
-        // collect table list
-        const tbls = db.exec("SELECT name FROM sqlite_master WHERE type='table'")
-        if(tbls && tbls[0] && tbls[0].values){
-          setTables(tbls[0].values.map(v=>v[0]))
-        }
-        if(mounted) { setDb(db); setStatus('ready') }
-      }catch(e){ console.error(e); setErr('Failed to initialize DB'); setStatus('error') }
-    })()
-    return ()=>{ mounted=false }
-  },[])
+  const tableCount = useMemo(() => tables.length, [tables])
 
-  function run(){
-    setErr(null)
+  async function refreshTables() {
+    const response = await fetch(`${API}/tables`)
+    if (!response.ok) throw new Error('Database API is not available')
+    const data = await response.json()
+    setTables(data.tables || [])
+    setStatus('Connected')
+  }
+
+  useEffect(() => {
+    refreshTables().catch(() => setStatus('Backend offline'))
+  }, [])
+
+  async function executeQuery() {
+    setBusy(true)
+    setError('')
+    setMessage('')
+    try {
+      const response = await fetch(`${API}/query`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({sql})
+      })
+      const text = await response.text()
+      if (!response.ok) throw new Error(text || 'Query failed')
+      const data = text ? JSON.parse(text) : {}
+      if (data.columns) setResult(data)
+      else setResult(null)
+      setMessage(data.message || 'Query completed')
+      await refreshTables()
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function loadSampleData() {
+    setBusy(true)
+    setError('')
+    setMessage('Loading supermarket data...')
+    try {
+      for (const table of SAMPLE_FILES) {
+        if (tables.includes(table)) continue
+        const response = await fetch(`/data/sample_db/${table}.csv`)
+        if (!response.ok) continue
+        const rows = parseCSV(await response.text())
+        if (!rows.length) continue
+        const columns = Object.keys(rows[0])
+        const statements = [
+          `CREATE TABLE ${table} (${columns.map(column => `${column} TEXT`).join(', ')})`,
+          ...rows.map(row => createInsert(table, columns, row))
+        ]
+        const transaction = await fetch(`${API}/transaction`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({statements})
+        })
+        if (!transaction.ok && !/already|exists/i.test(await transaction.text())) {
+          throw new Error(`Could not load ${table}`)
+        }
+      }
+      await refreshTables()
+      setMessage('Supermarket data is ready')
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function chooseQuery(value) {
+    setSql(value)
     setResult(null)
-    if(!db){ setErr('DB not ready'); return }
-    try{
-      const res = db.exec(sql)
-      if(res.length===0){ setResult({columns:[], values:[]}); return }
-      // use first result set
-      setResult({columns: res[0].columns, values: res[0].values})
-    }catch(e){ setErr(String(e)) }
+    setMessage('')
   }
 
   return (
-    <div className="app card">
-      <header className="header">
-        <h2>SQL Playground</h2>
-        <div className="status">Status: <strong>{status}</strong></div>
+    <div className="shell">
+      <header className="topbar">
+        <div className="brand">
+          <div className="brand-mark">M</div>
+          <div>
+            <strong>Market data</strong>
+            <span>Operations console</span>
+          </div>
+        </div>
+        <div className="connection"><i className={status === 'Connected' ? 'online' : ''} />{status}</div>
       </header>
 
-      <div className="sidebar">
-        <div className="section">
-          <h4>Tables</h4>
-          <ul>
-            {tables.map(t=> <li key={t}>{t}</li>)}
-          </ul>
-        </div>
-        <div className="section">
-          <h4>Examples</h4>
-          <select onChange={e=>setSql(e.target.value)}>
-            <option>SELECT * FROM customers LIMIT 50</option>
-            <option>SELECT * FROM products LIMIT 50</option>
-            <option>SELECT order_id, total_amount FROM orders</option>
-            <option>SELECT p.product_name, oi.quantity FROM order_items oi JOIN products p ON oi.product_id=p.product_id LIMIT 50</option>
-          </select>
-        </div>
-      </div>
+      <main className="workspace">
+        <section className="page-heading">
+          <div>
+            <p className="eyebrow">Store analytics</p>
+            <h1>Database workspace</h1>
+            <p className="subheading">Manage stock, customers and orders from one place.</p>
+          </div>
+          <button className="secondary" onClick={loadSampleData} disabled={busy}>Load store data</button>
+        </section>
 
-      <main>
-        <textarea className="editor" value={sql} onChange={e=>setSql(e.target.value)} />
-        <div className="controls">
-          <button onClick={run}>Run</button>
-        </div>
+        <section className="stats">
+          <div className="stat"><span>Connection</span><strong>{status === 'Connected' ? 'Healthy' : 'Offline'}</strong><small>Raft database API</small></div>
+          <div className="stat"><span>Tables</span><strong>{tableCount}</strong><small>Available in this store</small></div>
+          <div className="stat"><span>Query mode</span><strong>Live</strong><small>Changes are persisted</small></div>
+        </section>
 
-        {err && <div className="err">Error: {err}</div>}
+        <section className="content-grid">
+          <aside className="panel tables-panel">
+            <div className="panel-title"><h2>Store tables</h2><span>{tableCount}</span></div>
+            {tables.length === 0 ? <p className="muted">No tables yet. Load store data to get started.</p> :
+              <ul className="table-list">{tables.map(table => <li key={table}><span className="table-icon">▦</span>{table}</li>)}</ul>}
+          </aside>
 
-        <div className="table">
-          {result && (
-            <table>
-              <thead>
-                <tr>{result.columns.map(c=> <th key={c}>{c}</th>)}</tr>
-              </thead>
-              <tbody>
-                {result.values.map((r,ri)=> <tr key={ri}>{r.map((v,ci)=><td key={ci}>{v}</td>)}</tr>)}
-              </tbody>
-            </table>
-          )}
-        </div>
+          <section className="panel query-panel">
+            <div className="panel-title"><div><h2>SQL query</h2><p>Run reads and changes against the live store.</p></div></div>
+            <textarea value={sql} onChange={event => setSql(event.target.value)} spellCheck="false" />
+            <div className="query-actions">
+              <button className="primary" onClick={executeQuery} disabled={busy}>{busy ? 'Running...' : 'Run query'}</button>
+              <button className="text-button" onClick={() => setSql('')}>Clear</button>
+            </div>
+            <div className="query-shortcuts">
+              <button onClick={() => chooseQuery('SELECT * FROM products LIMIT 25')}>Product stock</button>
+              <button onClick={() => chooseQuery('SELECT status, COUNT(*) AS orders, SUM(total_amount) AS revenue FROM orders GROUP BY status ORDER BY revenue DESC')}>Order summary</button>
+              <button onClick={() => chooseQuery('SELECT * FROM products WHERE stock_qty < 50 ORDER BY stock_qty ASC')}>Low stock</button>
+            </div>
+            {message && <div className="notice">{message}</div>}
+            {error && <div className="error">{error}</div>}
+          </section>
+        </section>
+
+        <section className="panel results-panel">
+          <div className="panel-title"><div><h2>Results</h2><p>{result ? `${result.rows.length} rows returned` : 'Run a query to see results here.'}</p></div></div>
+          {result && <div className="result-scroll"><table><thead><tr>{result.columns.map(column => <th key={column}>{column}</th>)}</tr></thead><tbody>
+            {result.rows.map((row, index) => <tr key={index}>{result.columns.map(column => <td key={column}>{row[column] ?? ''}</td>)}</tr>)}
+          </tbody></table></div>}
+        </section>
       </main>
     </div>
   )
