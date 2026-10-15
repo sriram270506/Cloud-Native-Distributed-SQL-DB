@@ -1,16 +1,37 @@
+# Three-node Raft cluster, one container per node. Any node accepts requests; followers forward to the leader.
+x-node: &node
+  build: .
+  image: cndsdb:latest
+  healthcheck:
+    test: ["CMD", "/cndsdb", "-probe", "http://localhost:8080/ready"]
+    interval: 5s
+    timeout: 3s
+    retries: 6
+  restart: unless-stopped
+
+x-peers: &peers "node1=node1:7000=node1:8080,node2=node2:7000=node2:8080,node3=node3:7000=node3:8080"
+
 services:
-  cndsdb:
-    build: .
-    command: ["-port", "8080", "-nodes", "3", "-data", "/var/lib/cndsdb"]
-    ports:
-      - "8080:8080"
-    volumes:
-      - cndsdb-data:/var/lib/cndsdb
-    healthcheck:
-      test: ["CMD", "/cndsdb", "-help"]
-      interval: 10s
-      timeout: 3s
-      retries: 3
+  node1:
+    <<: *node
+    hostname: node1
+    command: ["-id", "node1", "-port", "8080", "-raft-addr", "0.0.0.0:7000", "-advertise", "node1:7000", "-peers", *peers, "-data", "/var/lib/cndsdb"]
+    ports: ["8080:8080"]
+    volumes: ["node1-data:/var/lib/cndsdb"]
+  node2:
+    <<: *node
+    hostname: node2
+    command: ["-id", "node2", "-port", "8080", "-raft-addr", "0.0.0.0:7000", "-advertise", "node2:7000", "-peers", *peers, "-data", "/var/lib/cndsdb"]
+    ports: ["8081:8080"]
+    volumes: ["node2-data:/var/lib/cndsdb"]
+  node3:
+    <<: *node
+    hostname: node3
+    command: ["-id", "node3", "-port", "8080", "-raft-addr", "0.0.0.0:7000", "-advertise", "node3:7000", "-peers", *peers, "-data", "/var/lib/cndsdb"]
+    ports: ["8082:8080"]
+    volumes: ["node3-data:/var/lib/cndsdb"]
 
 volumes:
-  cndsdb-data:
+  node1-data:
+  node2-data:
+  node3-data:

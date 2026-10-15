@@ -1,5 +1,10 @@
 .git
-frontend/node_modules
-data/runtime
-data/smoke-runtime*
+.serena
+.dist
+bin
+data/runtime*
+data/smoke*
+frontend
+node_modules
+*.exe
 *.log

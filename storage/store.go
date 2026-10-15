@@ -107,8 +107,14 @@ func (s *Store) Restore(data []byte) error {
 	if err := json.Unmarshal(data, &values); err != nil {
 		return fmt.Errorf("decode snapshot: %w", err)
 	}
+	if values == nil {
+		values = make(map[string][]byte)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.wal.Rewrite(values); err != nil {
+		return fmt.Errorf("rewrite wal: %w", err)
+	}
 	s.data = values
 	return nil
 }

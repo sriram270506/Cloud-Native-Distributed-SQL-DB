@@ -1,5 +1,14 @@
 param([string]$BaseUrl = "http://localhost:8080")
 $headers = @{ "Content-Type" = "application/json" }
+# Wait for leader election before sending writes.
+$deadline = (Get-Date).AddSeconds(30)
+while ($true) {
+  try { Invoke-RestMethod "$BaseUrl/ready" | Out-Null; break } catch {
+    if ((Get-Date) -gt $deadline) { throw "no Raft leader at $BaseUrl after 30s" }
+    Start-Sleep -Milliseconds 250
+  }
+}
+Invoke-RestMethod "$BaseUrl/health" | ConvertTo-Json -Depth 4 | Out-Host
 function Invoke-Sql([string]$Sql) {
   Invoke-RestMethod -Uri "$BaseUrl/query" -Method Post -Headers $headers -Body (@{ sql = $Sql } | ConvertTo-Json)
 }

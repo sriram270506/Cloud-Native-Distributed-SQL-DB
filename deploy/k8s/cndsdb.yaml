@@ -1,0 +1,108 @@
+# Three-replica Raft cluster on Kubernetes.
+#   docker build -t cndsdb:latest .   (load the image into your cluster, e.g. kind load docker-image cndsdb:latest)
+#   kubectl apply -f deploy/k8s/cndsdb.yaml
+#   kubectl port-forward svc/cndsdb 8080:8080
+---
+# Headless service: gives each pod a stable DNS name (cndsdb-0.cndsdb-raft) for Raft peering.
+apiVersion: v1
+kind: Service
+metadata:
+  name: cndsdb-raft
+  labels: {app: cndsdb}
+spec:
+  clusterIP: None
+  # Peers must resolve each other before any pod is Ready, or the first election can never happen.
+  publishNotReadyAddresses: true
+  selector: {app: cndsdb}
+  ports:
+    - {name: raft, port: 7000}
+    - {name: http, port: 8080}
+---
+# Client service: load-balances across ready pods; followers forward to the leader.
+apiVersion: v1
+kind: Service
+metadata:
+  name: cndsdb
+  labels: {app: cndsdb}
+spec:
+  selector: {app: cndsdb}
+  ports:
+    - {name: http, port: 8080, targetPort: http}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: cndsdb
+spec:
+  serviceName: cndsdb-raft
+  replicas: 3
+  # Parallel start: OrderedReady would wait for pod 0 to be Ready, which needs a quorum that does not exist yet.
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels: {app: cndsdb}
+  template:
+    metadata:
+      labels: {app: cndsdb}
+    spec:
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 65532
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels: {app: cndsdb}
+      containers:
+        - name: cndsdb
+          image: cndsdb:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: POD_NAME
+              valueFrom: {fieldRef: {fieldPath: metadata.name}}
+          args:
+            - -id=$(POD_NAME)
+            - -port=8080
+            - -raft-addr=0.0.0.0:7000
+            - -advertise=$(POD_NAME).cndsdb-raft:7000
+            - -peers=cndsdb-0=cndsdb-0.cndsdb-raft:7000=cndsdb-0.cndsdb-raft:8080,cndsdb-1=cndsdb-1.cndsdb-raft:7000=cndsdb-1.cndsdb-raft:8080,cndsdb-2=cndsdb-2.cndsdb-raft:7000=cndsdb-2.cndsdb-raft:8080
+            - -data=/var/lib/cndsdb
+          ports:
+            - {name: http, containerPort: 8080}
+            - {name: raft, containerPort: 7000}
+          readinessProbe:
+            httpGet: {path: /ready, port: http}
+            periodSeconds: 3
+          livenessProbe:
+            httpGet: {path: /health, port: http}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {memory: 512Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/cndsdb}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests: {storage: 1Gi}
+---
+# Keep a Raft majority (2 of 3) during voluntary disruptions such as node drains.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: cndsdb
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels: {app: cndsdb}
