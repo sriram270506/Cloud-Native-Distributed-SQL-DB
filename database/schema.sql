@@ -1,5 +1,5 @@
 -- =====================================================================
--- Supermarket order database: complete DDL
+-- E-commerce order database: complete DDL
 -- Portable SQL; runs unchanged on SQLite 3.35+ and PostgreSQL 13+.
 -- Run order: schema.sql -> seed.sql -> queries.sql
 -- =====================================================================

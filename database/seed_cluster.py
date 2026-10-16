@@ -1,4 +1,4 @@
-"""Create and populate the supermarket tables in the running Raft cluster, then run demo queries.
+"""Create and populate the e-commerce tables in the running Raft cluster, then run demo queries.
 
 Start a cluster first (scripts/cluster.ps1, scripts/cluster.sh or docker compose up), then:
     python database/seed_cluster.py [--url http://localhost:8080]

@@ -1,5 +1,5 @@
 -- =====================================================================
--- Advanced SQL queries for the supermarket database.
+-- Advanced SQL queries for the e-commerce database.
 -- Run after schema.sql and seed.sql. Each block starts with "-- @Qn" so
 -- database/run_queries.py can run them one by one and record the output.
 -- =====================================================================

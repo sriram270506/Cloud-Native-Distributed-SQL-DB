@@ -1,4 +1,4 @@
-"""Test cases for the supermarket schema: constraints, cascades and query results.
+"""Test cases for the e-commerce schema: constraints, cascades and query results.
 
 Run from the repository root:  python -m unittest discover -s database -v
 """

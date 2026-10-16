@@ -1,12 +1,11 @@
 {
-  "project_name": "Cloud-Native Distributed NewSQL Database with Raft Consensus and MVCC Transactions",
+  "project_name": "Cloud-Native Distributed NewSQL Database for E-commerce, with Raft Consensus and MVCC Transactions",
   "course": "23AIE303 - Database Management Systems",
-  "batch": "BATCH_NO",
-  "group": "GROUP_NO",
+  "batch": "A",
+  "group": "17",
   "github": "https://github.com/sriram270506/Cloud-Native-Distributed-SQL-DB",
   "members": [
-    {"name": "Member 1 Name", "roll_no": "Roll No."},
-    {"name": "Member 2 Name", "roll_no": "Roll No."},
-    {"name": "Member 3 Name", "roll_no": "Roll No."}
+    {"name": "Bhuvaneswaran S", "roll_no": "CB.SC.U4AIE24012"},
+    {"name": "Sriram S", "roll_no": "CB.SC.U4AIE24066"}
   ]
 }

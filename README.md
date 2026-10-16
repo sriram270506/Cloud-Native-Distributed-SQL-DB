@@ -1,7 +1,7 @@
-# Cloud-Native Distributed NewSQL Database with Raft Consensus and MVCC Transactions
+# Cloud-Native Distributed NewSQL Database for E-commerce, with Raft Consensus and MVCC Transactions
 
 **Course:** 23AIE303 – Database Management Systems
-**Batch / Group:** BATCH_NO / GROUP_NO
+**Batch / Group:** A / 17
 **Repository:** https://github.com/sriram270506/Cloud-Native-Distributed-SQL-DB
 **Project report (PDF):** [docs/report/Project_Report.pdf](docs/report/Project_Report.pdf)
 
@@ -9,9 +9,8 @@
 
 | # | Name | Roll number |
 |---|------|-------------|
-| 1 | Member 1 Name | Roll No. |
-| 2 | Member 2 Name | Roll No. |
-| 3 | Member 3 Name | Roll No. |
+| 1 | Bhuvaneswaran S | CB.SC.U4AIE24012 |
+| 2 | Sriram S | CB.SC.U4AIE24066 |
 
 Team details also live in [docs/report/team.json](docs/report/team.json), which the report generator reads.
 
@@ -21,12 +20,12 @@ Team details also live in [docs/report/team.json](docs/report/team.json), which 
 
 A traditional relational database runs on a single server. If that server fails, the data is unavailable and recent writes can be lost. NewSQL systems such as Spanner, CockroachDB and TiDB keep SQL and ACID transactions, but replicate data across machines with a consensus protocol.
 
-This project builds such a system from first principles and uses it to run a supermarket database:
+This project builds such a system from first principles and uses it to run an e-commerce store database:
 
 - **Distributed engine (Go).** Each node is a separate process and a Raft voter. Writes are replicated over TCP and acknowledged only after a majority has saved them to a durable BoltDB log. Transactions use MVCC and are all-or-nothing on every replica. Reads are linearizable. If the leader fails, a new one is elected automatically.
-- **Supermarket database (SQL).** Customers, addresses, products, orders, order lines and payments. The schema is normalized to BCNF, fully constrained and queried with advanced SQL.
+- **E-commerce database (SQL).** Customers, addresses, products, orders, order lines and payments. The schema is normalized to BCNF, fully constrained and queried with advanced SQL.
 
-**Problem statement.** A supermarket needs one consistent record of customers, products, orders and payments. That record must:
+**Problem statement.** An e-commerce store needs one consistent record of customers, products, orders and payments. That record must:
 - stay available and correct when a server fails;
 - apply multi-statement updates atomically;
 - enforce integrity through keys and constraints;
@@ -77,7 +76,7 @@ Full details: [ARCHITECTURE.md](ARCHITECTURE.md). There is also a viva-style Q&A
 
 ## 3. ER diagram and UML diagram
 
-ER diagram ([docs/supermarket_er.mmd](docs/supermarket_er.mmd)):
+ER diagram ([docs/ecommerce_er.mmd](docs/ecommerce_er.mmd)):
 
 ```mermaid
 erDiagram
@@ -121,8 +120,8 @@ erDiagram
 ```
 
 These diagrams show only key attributes. The full versions are in these files:
-- [docs/supermarket_er.mmd](docs/supermarket_er.mmd): ER diagram with every attribute
-- [docs/supermarket_uml.mmd](docs/supermarket_uml.mmd): UML class diagram
+- [docs/ecommerce_er.mmd](docs/ecommerce_er.mmd): ER diagram with every attribute
+- [docs/ecommerce_uml.mmd](docs/ecommerce_uml.mmd): UML class diagram
 - [docs/system_class.mmd](docs/system_class.mmd): system component diagram
 - [docs/write_path_sequence.mmd](docs/write_path_sequence.mmd): write-path sequence diagram
 
@@ -249,7 +248,7 @@ cd frontend; npm ci; cd ..
 ### Create and populate the reference database (SQLite)
 
 ```powershell
-python database/run_queries.py --db database/supermarket.db   # runs schema.sql, seed.sql, queries.sql
+python database/run_queries.py --db database/ecommerce.db   # runs schema.sql, seed.sql, queries.sql
 ```
 
 To run the same scripts on PostgreSQL instead, delete the `PRAGMA` line in `schema.sql` first:
@@ -341,7 +340,7 @@ Sample outputs are in [database/results/](database/results/).
 
 ## 13. Conclusion and future scope
 
-The supermarket database is normalized to BCNF, fully constrained and covered by tests. It runs on a database engine built for this project, which:
+The e-commerce database is normalized to BCNF, fully constrained and covered by tests. It runs on a database engine built for this project, which:
 - replicates every write through Raft;
 - keeps transactions all-or-nothing on every replica;
 - serves linearizable reads;

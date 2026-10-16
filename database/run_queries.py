@@ -1,6 +1,6 @@
-"""Build the supermarket database in SQLite and run every documented query.
+"""Build the e-commerce database in SQLite and run every documented query.
 
-Usage:  python database/run_queries.py [--db database/supermarket.db]
+Usage:  python database/run_queries.py [--db database/ecommerce.db]
 Writes the results of each query in queries.sql to database/results/query_results.md.
 """
 import argparse

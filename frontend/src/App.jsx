@@ -65,7 +65,7 @@ export default function App() {
   async function loadSampleData() {
     setBusy(true)
     setError('')
-    setMessage('Loading supermarket data...')
+    setMessage('Loading e-commerce data...')
     try {
       for (const table of SAMPLE_FILES) {
         if (tables.includes(table)) continue
@@ -88,7 +88,7 @@ export default function App() {
         }
       }
       await refreshTables()
-      setMessage('Supermarket data is ready')
+      setMessage('E-commerce data is ready')
     } catch (err) {
       setError(err.message)
     } finally {

@@ -2,10 +2,9 @@
 
     python docs/report/build_report.py
 
-Reads docs/report/team.json, database/*.sql, data/sample_db/*.csv, docs/*.mmd,
-database/results/*.md and docs/screenshots/*.png, writes docs/report/report.html, then
-prints it to docs/report/Project_Report.pdf with headless Chrome or Edge.
-Edit team.json (names, batch, group) and re-run to regenerate the PDF.
+Reads docs/report/team.json, database/*.sql, data/sample_db/*.csv, docs/*.mmd and
+docs/screenshots/*.png, writes docs/report/report.html, then prints it to
+docs/report/Project_Report.pdf with headless Chrome or Edge (needs internet for the diagrams).
 """
 import base64
 import csv
@@ -24,6 +23,7 @@ sys.path.insert(0, str(ROOT / "database"))
 from run_queries import build, parse_queries  # noqa: E402
 
 TABLES = ["customers", "addresses", "products", "orders", "order_items", "payments"]
+SHOWCASE = ["Q2", "Q4", "Q5", "Q8"]  # queries printed with their output
 e = html.escape
 
 
@@ -42,82 +42,43 @@ def image(name, caption):
     return f'<figure><img src="data:image/png;base64,{data}"><figcaption>{e(caption)}</figcaption></figure>'
 
 
-def md_to_html(text):
-    """Tiny converter for the generated result files: headings, tables, code, paragraphs."""
-    out, lines, i = [], text.splitlines(), 0
-    while i < len(lines):
-        line = lines[i]
-        if line.startswith("```"):
-            block = []
-            i += 1
-            while i < len(lines) and not lines[i].startswith("```"):
-                block.append(lines[i])
-                i += 1
-            out.append(f"<pre><code>{e(chr(10).join(block))}</code></pre>")
-        elif line.startswith("|"):
-            rows = []
-            while i < len(lines) and lines[i].startswith("|"):
-                if not set(lines[i]) <= set("|-: "):
-                    rows.append([c.strip() for c in lines[i].strip("|").split("|")])
-                i += 1
-            out.append(table_html(rows[0], rows[1:], "small"))
-            continue
-        elif line.startswith("## "):
-            out.append(f"<h4>{e(line[3:])}</h4>")
-        elif line.startswith("# "):
-            pass
-        elif line.strip():
-            out.append(f"<p>{e(line).replace('`', '')}</p>")
-        i += 1
+def table_details(db):
+    """Per-table structure (read back from SQLite) plus three sample rows."""
+    out = []
+    for number, table in enumerate(TABLES, 1):
+        fks = {row[3]: f"FK → {row[2]}" for row in db.execute(f"PRAGMA foreign_key_list({table})")}
+        uniques = set()
+        for index in db.execute(f"PRAGMA index_list({table})"):
+            cols = [c[2] for c in db.execute(f"PRAGMA index_info({index[1]})")]
+            if index[2] and len(cols) == 1:
+                uniques.add(cols[0])
+        rows = []
+        for _, name, ctype, notnull, _, pk in db.execute(f"PRAGMA table_info({table})"):
+            keys = ["PK"] if pk else []
+            keys += [fks[name]] if name in fks else []
+            keys += ["UNIQUE"] if name in uniques else []
+            rows.append([name, ctype, "yes" if notnull or pk else "no", ", ".join(keys)])
+        with open(ROOT / "data" / "sample_db" / f"{table}.csv", newline="") as handle:
+            sample = list(csv.reader(handle))
+        out.append(f"""<div class="keep"><h3>9.{number} {table}</h3>
+{table_html(["Column", "Type", "Required", "Key"], rows, "small")}
+<p class="label">Sample records (3 of {len(sample) - 1})</p>
+{table_html(sample[0], sample[1:4], "small")}</div>""")
     return "\n".join(out)
 
 
-def schema_details(db):
-    """Per-table column structure with keys and constraints, read back from SQLite."""
-    sql_by_table = {name: sql for name, sql in db.execute("SELECT name, sql FROM sqlite_master WHERE type='table'")}
-    sections = []
-    for table in TABLES:
-        fks = {row[3]: f"FK → {row[2]}({row[4]}) ON DELETE {row[6]}" for row in db.execute(f"PRAGMA foreign_key_list({table})")}
-        uniques = set()
-        for index in db.execute(f"PRAGMA index_list({table})"):
-            if index[2]:
-                cols = [c[2] for c in db.execute(f"PRAGMA index_info({index[1]})")]
-                if len(cols) == 1:
-                    uniques.add(cols[0])
-        rows = []
-        for cid, name, ctype, notnull, default, pk in db.execute(f"PRAGMA table_info({table})"):
-            keys = []
-            if pk:
-                keys.append("PK")
-            if name in fks:
-                keys.append(fks[name])
-            if name in uniques:
-                keys.append("UNIQUE")
-            rows.append([name, ctype, "NOT NULL" if notnull or pk else "NULL", default or "", ", ".join(keys)])
-        checks = [line.strip().rstrip(",") for line in sql_by_table[table].splitlines()
-                  if "CHECK" in line or ("UNIQUE (" in line and "CONSTRAINT" in line)]
-        with open(ROOT / "data" / "sample_db" / f"{table}.csv", newline="") as handle:
-            sample = list(csv.reader(handle))
-        sections.append(f"""
-<h3>9.{TABLES.index(table) + 1} {table}</h3>
-{table_html(["Attribute", "Type", "Null", "Default", "Keys"], rows)}
-<p class="label">Table-level constraints</p>
-<pre><code>{e(chr(10).join(checks))}</code></pre>
-<p class="label">Sample records ({len(sample) - 1} rows)</p>
-{table_html(sample[0], sample[1:], "small")}""")
-    return "\n".join(sections)
-
-
-def query_section(db):
+def showcase(db):
+    queries = {qid: (title, purpose, sql) for qid, title, purpose, sql in parse_queries((ROOT / "database" / "queries.sql").read_text())}
+    listing = table_html(["#", "What it shows"], [[qid, title] for qid, (title, _, _) in queries.items()], "small")
     parts = []
-    for qid, title, purpose, sql in parse_queries((ROOT / "database" / "queries.sql").read_text()):
+    for qid in SHOWCASE:
+        title, purpose, sql = queries[qid]
         cursor = db.execute(sql)
         columns = [d[0] for d in cursor.description]
         rows = cursor.fetchall()
-        result = table_html(columns, rows, "small") if rows else "<p><em>No rows (expected).</em></p>"
-        parts.append(f"""<div class="query"><h4>{qid}. {e(title)}</h4><p>{e(purpose)}</p>
-<pre><code>{e(sql)}</code></pre><p class="label">Output ({len(rows)} rows)</p>{result}</div>""")
-    return "\n".join(parts)
+        parts.append(f"""<div class="keep"><h4>{qid}. {e(title)}</h4><p>{e(purpose)}</p>
+<pre><code>{e(sql)}</code></pre>{table_html(columns, rows[:6], "small")}</div>""")
+    return listing, "\n".join(parts)
 
 
 def main():
@@ -125,275 +86,206 @@ def main():
     db = sqlite3.connect(":memory:")
     build(db)
     members = table_html(["#", "Name", "Roll number"], [[i + 1, m["name"], m["roll_no"]] for i, m in enumerate(team["members"])])
-    counts = {t: db.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] for t in TABLES}
-    results = ROOT / "database" / "results"
+    listing, examples = showcase(db)
 
     page = f"""<!doctype html><html><head><meta charset="utf-8"><title>Project Report</title>
 <style>
-@page {{ size: A4; margin: 18mm 16mm; }}
+@page {{ size: A4; margin: 16mm 15mm; }}
 body {{ font-family: "Segoe UI", Arial, sans-serif; font-size: 10.5pt; line-height: 1.45; color: #1d2329; }}
-h1 {{ font-size: 24pt; margin: 0 0 8px; }}
-h2 {{ font-size: 16pt; border-bottom: 2px solid #1f6f50; padding-bottom: 4px; margin-top: 0; page-break-before: always; color: #174f3a; }}
-h3 {{ font-size: 12.5pt; margin: 18px 0 6px; color: #174f3a; }}
-h4 {{ font-size: 11pt; margin: 14px 0 4px; }}
-table {{ border-collapse: collapse; width: 100%; margin: 6px 0 10px; font-size: 9pt; page-break-inside: auto; }}
+h1 {{ font-size: 22pt; margin: 0 0 8px; color: #174f3a; }}
+h2 {{ font-size: 15pt; border-bottom: 2px solid #1f6f50; padding-bottom: 3px; margin: 22px 0 8px; color: #174f3a; }}
+h2.page {{ page-break-before: always; margin-top: 0; }}
+h3 {{ font-size: 12pt; margin: 14px 0 5px; color: #174f3a; }}
+h4 {{ font-size: 10.5pt; margin: 10px 0 3px; }}
+p {{ margin: 4px 0 6px; }}
+table {{ border-collapse: collapse; width: 100%; margin: 5px 0 8px; font-size: 9pt; }}
 th, td {{ border: 1px solid #c9d1d6; padding: 3px 6px; text-align: left; vertical-align: top; }}
 th {{ background: #e8f1ec; }}
 table.small {{ font-size: 8pt; }}
-tr {{ page-break-inside: avoid; }}
-pre {{ background: #f5f7f8; border: 1px solid #dde3e6; padding: 6px 8px; font-size: 8.3pt; white-space: pre-wrap; page-break-inside: avoid; }}
-pre.mermaid {{ background: none; border: none; text-align: center; }}
-.label {{ font-weight: 600; margin: 8px 0 2px; font-size: 9.5pt; }}
-.query {{ page-break-inside: auto; }}
-figure {{ margin: 10px 0; text-align: center; page-break-inside: avoid; }}
-figure img {{ max-width: 100%; border: 1px solid #c9d1d6; }}
+tr, .keep {{ page-break-inside: avoid; }}
+pre {{ background: #f5f7f8; border: 1px solid #dde3e6; padding: 5px 8px; font-size: 8pt; white-space: pre-wrap; margin: 4px 0; }}
+pre.mermaid svg {{ max-height: 105mm; }}
+pre.mermaid {{ background: none; border: none; text-align: center; page-break-inside: avoid; }}
+.label {{ font-weight: 600; margin: 6px 0 2px; font-size: 9pt; }}
+.box {{ background: #eef5f1; border: 1px solid #cfe2d8; padding: 8px 12px; margin: 8px 0; }}
+figure {{ margin: 8px 0; text-align: center; page-break-inside: avoid; }}
+figure img {{ max-width: 88%; border: 1px solid #c9d1d6; }}
 figcaption {{ font-size: 9pt; color: #555; }}
-.title-page {{ text-align: center; padding-top: 140px; }}
-.title-page .course {{ font-size: 13pt; color: #444; margin-top: 30px; }}
-.title-page .meta {{ margin-top: 40px; font-size: 11pt; }}
-.toc li {{ margin: 3px 0; }}
+.title {{ text-align: center; padding-top: 90px; }}
+.title .course {{ font-size: 13pt; color: #444; }}
+.title .meta {{ font-size: 11.5pt; margin: 6px 0; }}
+.title table {{ width: 75%; margin: 18px auto; font-size: 10.5pt; }}
 </style></head><body>
 
-<section class="title-page">
+<section class="title">
   <p class="course">{e(team["course"])} &mdash; Project Report</p>
+  <h2 style="border:none; font-size:13pt; color:#444">1. Project Title</h2>
   <h1>{e(team["project_name"])}</h1>
   <p class="meta">Batch {e(team["batch"])} &middot; Group {e(team["group"])}</p>
-  <p class="meta">GitHub repository: <a href="{e(team["github"])}">{e(team["github"])}</a></p>
-  <h3 style="margin-top:50px">Contents</h3>
-  <ol class="toc" style="text-align:left; display:inline-block">
-    <li>Project Title</li><li>Team Members</li><li>Introduction and Problem Statement</li>
-    <li>Conceptual and Logical Database Design</li><li>Normalization and Functional Dependencies</li>
-    <li>Advanced SQL Implementation and Query Design</li><li>ER Diagram and UML Diagram</li>
-    <li>Relational Schema</li><li>Database Tables</li><li>Conclusion and Future Scope</li>
-    <li>Appendix A: Testing and Validation</li><li>Appendix B: Setup and Demonstration</li>
-  </ol>
+  <h2 style="border:none; font-size:13pt; color:#444; margin-top:40px">2. Team Members</h2>
+  {members}
+  <p class="meta" style="margin-top:30px">GitHub repository:<br><a href="{e(team["github"])}">{e(team["github"])}</a></p>
 </section>
 
-<h2>1. Project Title</h2>
-<p><strong>{e(team["project_name"])}</strong></p>
-<p>The project has two layers:</p>
+<h2 class="page">3. Introduction and Problem Statement</h2>
+<h3>3.1 The problem</h3>
+<p>An online store has to keep track of its customers, their addresses, the products it sells, the orders people place and the payments for those orders. Most college projects keep all of this in one database on one computer, which causes three problems:</p>
 <ul>
-  <li><strong>A distributed database engine.</strong> Every node is a separate process. Writes are replicated with the Raft consensus protocol and run as MVCC transactions. The engine is written in Go and deploys on Docker Compose or Kubernetes.</li>
-  <li><strong>A supermarket order-management database.</strong> It is designed, normalized and queried in standard SQL, and it runs on that engine.</li>
+  <li><strong>One crash stops the shop.</strong> If that single computer fails, nobody can buy anything, and orders that were being saved may be lost.</li>
+  <li><strong>It cannot grow.</strong> When more shoppers arrive, the only option is to buy a bigger, more expensive computer.</li>
+  <li><strong>Simultaneous buyers can clash.</strong> If two people buy at the same moment, one of them might see half-saved information.</li>
 </ul>
-<p>GitHub repository: <a href="{e(team["github"])}">{e(team["github"])}</a></p>
-
-<h2>2. Team Members</h2>
-<p>Batch: {e(team["batch"])} &nbsp; Group: {e(team["group"])}</p>
-{members}
-
-<h2>3. Introduction and Problem Statement</h2>
-<h3>3.1 Introduction</h3>
-<p>A traditional relational database runs on one server. If that server fails, the data is unavailable and recent writes may be lost. NewSQL systems such as Google Spanner, CockroachDB and TiDB keep the SQL interface and ACID transactions, but spread the data across several machines. They agree on every change with a consensus protocol.</p>
-<p>This project builds a small database of that kind from first principles:</p>
-<ul>
-  <li><strong>Raft consensus</strong> elects a leader and replicates each write to a majority of nodes before it is acknowledged.</li>
-  <li><strong>A write-ahead log</strong> plus a durable Raft log let a crashed node recover its state.</li>
-  <li><strong>MVCC</strong> (multi-version concurrency control) gives transactions snapshot isolation.</li>
-  <li><strong>A SQL layer</strong> supports DDL, DML, joins, grouping and aggregates.</li>
-  <li><strong>An HTTP API and a React console</strong> let users run SQL against any node.</li>
-</ul>
-<h3>3.2 Problem statement</h3>
-<p>A supermarket needs one consistent record of its customers, addresses, products, orders, order lines and payments. The record must:</p>
-<ol>
-  <li>stay available and correct when a server fails, with no lost acknowledged writes and no split-brain;</li>
-  <li>apply multi-statement updates atomically, for example creating an order with its lines and payment;</li>
-  <li>enforce data integrity through keys and constraints, and stay free of update anomalies through normalization;</li>
-  <li>answer analytical questions such as revenue per category, top customers and unsold stock with SQL;</li>
-  <li>accept client input safely, through parameterized queries, so SQL injection is not possible.</li>
-</ol>
+<h3>3.2 Our solution: a NewSQL database</h3>
+<p><strong>NewSQL</strong> means a database that looks and feels like a normal SQL database (tables, keys, <code>SELECT</code> queries, transactions) but runs on several computers at once. Well-known examples are Google Spanner and CockroachDB. We built a small one ourselves in the Go language and used it to run an e-commerce database. It relies on three main ideas.</p>
+{table_html(["Idea", "In simple words", "What it gives the store"], [
+    ["Horizontal scaling", "Grow by adding more computers (nodes) instead of buying one bigger computer.", "Our cluster has 3 nodes, and each holds a full copy of the data."],
+    ["Raft consensus", "The nodes vote to choose a leader. The leader copies every change to the others, and a change counts only when most nodes (2 of 3) have saved it.", "If a node crashes, no saved order is lost. If the leader crashes, a new leader is chosen automatically in under 2 seconds."],
+    ["MVCC transactions", "Multi-Version Concurrency Control: each change makes a new version of a row instead of overwriting it, so readers see a clean snapshot.", "Shoppers never see half-saved orders. A group of statements either all succeed or all fail."],
+])}
 <h3>3.3 Objectives</h3>
 <ul>
-  <li>Design a normalized (3NF/BCNF) relational schema with full PK, FK, UNIQUE, CHECK and ON DELETE CASCADE constraints.</li>
-  <li>Implement a replicated SQL database: Raft over TCP, a durable BoltDB log, linearizable reads and automatic failover.</li>
-  <li>Implement MVCC transactions and all-or-nothing batches that are replicated in the same order on every node.</li>
-  <li>Demonstrate advanced SQL (multi-table joins, correlated and nested subqueries, GROUP BY/HAVING, window functions, views) and validate everything with automated tests.</li>
+  <li>Design a clean (normalized) e-commerce database with proper keys and rules.</li>
+  <li>Make it run on 3 computers with Raft, so it survives a crash.</li>
+  <li>Support SQL: create, insert, update, delete, search, join, group and summarise.</li>
+  <li>Prove that everything works with automated tests and a live crash test.</li>
 </ul>
 
 <h2>4. Conceptual and Logical Database Design</h2>
-<h3>4.1 Conceptual design: entities and relationships</h3>
-{table_html(["Entity", "Description", "Key attribute"], [
-    ["Customer", "A registered shopper", "customer_id"],
-    ["Address", "A postal address owned by a customer (home, work, billing or shipping)", "address_id"],
-    ["Product", "An item in the catalogue, with price and stock", "product_id"],
-    ["Order", "One purchase by one customer on a date", "order_id"],
-    ["Order Item", "One product line within an order (associative entity)", "order_item_id"],
-    ["Payment", "A payment made against an order", "payment_id"],
+<h3>4.1 Conceptual design: what the store needs to remember</h3>
+{table_html(["Entity (thing)", "What it is", "Unique ID"], [
+    ["Customer", "A person with an account", "customer_id"],
+    ["Address", "A home or work address of a customer", "address_id"],
+    ["Product", "Something we sell, with its price and stock", "product_id"],
+    ["Order", "One purchase by one customer on one date", "order_id"],
+    ["Order Item", "One product line inside an order (for example, 2 × Widget A)", "order_item_id"],
+    ["Payment", "Money paid for an order", "payment_id"],
 ])}
-{table_html(["Relationship", "Cardinality", "Participation"], [
-    ["Customer owns Address", "1 : N", "An address must belong to a customer (total); a customer may have none (partial)"],
-    ["Customer places Order", "1 : N", "Every order has exactly one customer"],
-    ["Order contains Product (through Order Item)", "M : N, resolved to two 1 : N", "An order has at least one line; a product may be on no order"],
-    ["Order is settled by Payment", "1 : N", "A payment belongs to exactly one order"],
+{table_html(["Relationship", "Type", "Meaning"], [
+    ["Customer has Addresses", "One-to-many", "One customer can have many addresses."],
+    ["Customer places Orders", "One-to-many", "One customer can place many orders; every order has exactly one customer."],
+    ["Order contains Products", "Many-to-many", "An order has many products and a product appears in many orders. The order_items table sits in between."],
+    ["Order receives Payments", "One-to-many", "An order can be paid in one or more payments."],
 ])}
-<h3>4.2 Logical design: from ER model to relations</h3>
+<h3>4.2 Logical design: turning the entities into tables</h3>
 <ul>
-  <li>Each strong entity becomes a relation, and its key becomes the primary key.</li>
-  <li>Each 1:N relationship becomes a foreign key on the N side: <code>addresses.customer_id</code>, <code>orders.customer_id</code> and <code>payments.order_id</code>.</li>
-  <li>The M:N Order–Product relationship becomes the associative relation <code>order_items</code>. It has two foreign keys and a <code>UNIQUE(order_id, product_id)</code> constraint, so a product appears at most once per order.</li>
-  <li>Domains are enforced with CHECK constraints, for example status and payment-method lists, positive prices and quantities, and <code>updated_at &ge; created_at</code>.</li>
-  <li>Referential actions follow ownership:
-    <ul>
-      <li>Deleting a customer cascades to their addresses and orders, and from orders on to order lines and payments.</li>
-      <li>Deleting a product that has been sold is blocked (<code>ON DELETE RESTRICT</code>), so sales history is kept.</li>
-    </ul>
-  </li>
+  <li>Every entity becomes a table, and its unique ID becomes the <strong>primary key</strong>.</li>
+  <li>Every one-to-many relationship becomes a <strong>foreign key</strong> on the "many" side. For example, <code>orders.customer_id</code> points to <code>customers</code>.</li>
+  <li>The many-to-many link between orders and products becomes its own table, <code>order_items</code>. It allows each product only once per order.</li>
+  <li><strong>CHECK</strong> rules stop bad data, such as negative prices, a quantity of 0 or an unknown order status.</li>
+  <li><strong>ON DELETE CASCADE</strong>: deleting a customer also deletes their addresses, orders, order items and payments. A product that has been sold cannot be deleted, so sales history stays correct.</li>
 </ul>
-<h3>4.3 System design: how the database stores and replicates the data</h3>
-<ol>
-  <li>A client sends SQL to any node over HTTP. A follower forwards the request to the current leader.</li>
-  <li>The leader binds the <code>?</code> parameters into literals and appends the statement batch to the Raft log as one entry.</li>
-  <li>The entry is replicated over TCP and becomes committed once a majority of nodes has saved it to its BoltDB log.</li>
-  <li>Every node applies committed entries in log order through its state machine. The state machine runs the batch in the SQL engine and rolls back the whole batch if any statement fails.</li>
-  <li>The SQL engine stores schema and rows through MVCC into a key-value store. That store fsyncs a write-ahead log before each change.</li>
-  <li>Reads are served by the leader after it confirms its leadership with a quorum, so every read sees all acknowledged writes (linearizable).</li>
-</ol>
-{mermaid("system_class.mmd")}
-<p class="label">Figure 4.1: System components (Go packages)</p>
+<h3>4.3 How one order is saved across the computers</h3>
 {mermaid("write_path_sequence.mmd")}
-<p class="label">Figure 4.2: Write path of a replicated transaction</p>
 
-<h2>5. Normalization and Functional Dependencies</h2>
-<h3>5.1 Starting point: an unnormalized order sheet</h3>
-<p>Without design, a store might keep one wide row per order:</p>
-<pre><code>ORDER_SHEET(order_id, order_date, customer_name, customer_email, customer_city,
-            {{product_name, category, unit_price, quantity}}*, payment_method, amount)</code></pre>
-<p>This sheet has three problems:</p>
+<h2 class="page">5. Normalization and Functional Dependencies</h2>
+<p><strong>Normalization</strong> means splitting data into tables so that every fact is stored in exactly one place. To see why this matters, imagine the store kept everything in one big sheet:</p>
+<pre><code>order_id | date       | customer | email           | products ordered                 | paid
+1        | 2024-06-01 | Emma     | emma@example.com | Widget A x1 (19.99), Accessory 1 x2 | card</code></pre>
+<p>This sheet causes three kinds of trouble:</p>
 <ul>
-  <li><strong>Repeating group.</strong> The product list is repeated inside one row, which violates 1NF.</li>
-  <li><strong>Redundant data.</strong> Customer and product details are repeated on every order.</li>
-  <li><strong>Anomalies.</strong>
-    <ul>
-      <li>Update: changing a product's price means editing many rows.</li>
-      <li>Insertion: a new product cannot be stored until someone orders it.</li>
-      <li>Deletion: deleting a customer's only order also deletes the customer.</li>
-    </ul>
-  </li>
+  <li><strong>Update problem.</strong> If Emma changes her email, every one of her orders must be edited. Missing one leaves the data disagreeing with itself.</li>
+  <li><strong>Insert problem.</strong> A new product cannot be added until somebody orders it.</li>
+  <li><strong>Delete problem.</strong> Deleting Emma's only order also deletes everything we knew about Emma.</li>
 </ul>
-<h3>5.2 Functional dependencies</h3>
-{table_html(["Relation", "Functional dependencies", "Candidate keys"], [
-    ["customers", "customer_id → first_name, last_name, email, created_at, updated_at, status;  email → customer_id", "{customer_id}, {email}"],
-    ["addresses", "address_id → customer_id, line1, line2, city, state, postal_code, country, type;  (customer_id, type) → address_id", "{address_id}, {customer_id, type}"],
-    ["products", "product_id → product_name, category, unit_price, stock_qty, created_at, updated_at;  product_name → product_id", "{product_id}, {product_name}"],
-    ["orders", "order_id → customer_id, order_date, total_amount, status, created_at, updated_at", "{order_id}"],
-    ["order_items", "order_item_id → order_id, product_id, quantity, unit_price, line_total, created_at;  (order_id, product_id) → order_item_id", "{order_item_id}, {order_id, product_id}"],
-    ["payments", "payment_id → order_id, method, amount, paid_at, status, transaction_ref;  transaction_ref → payment_id", "{payment_id}, {transaction_ref}"],
+<h3>5.1 How our tables meet each normal form</h3>
+{table_html(["Normal form", "The rule in plain words", "How our e-commerce database follows it"], [
+    ["1NF (First Normal Form)", "Every cell holds one value. No lists inside a cell. Every row can be identified.", "The 'products ordered' list became separate rows in order_items: an order with 3 products has 3 rows. Every table has a primary key."],
+    ["2NF (Second Normal Form)", "Already in 1NF, and every column depends on the whole key, not just part of it.", "Product name, category and price depend only on product_id, so they live in products. order_items keeps just product_id. Every table has a one-column key, so a 'half-key' dependency cannot happen."],
+    ["3NF (Third Normal Form)", "Already in 2NF, and no column depends on another non-key column.", "orders stores only customer_id, never the customer's email or city. Those depend on the customer, not the order, so they live in customers and addresses. Payment details live in payments."],
 ])}
-<h3>5.3 Normal forms</h3>
+<div class="box"><strong>Result:</strong> every fact (an email, a price, an address) is stored exactly once. Changing it in one place updates it everywhere. Our tables actually meet BCNF, which is slightly stricter than 3NF: in every table, only a key decides the other columns.</div>
+<h3>5.2 Functional dependencies</h3>
+<p>A functional dependency <strong>X → Y</strong> means: if you know X, there is exactly one possible Y. For example, knowing <code>product_id = 1</code> tells you its name is "Widget A" and its price is 19.99. In our tables, X is always a key, which is what makes them normalized.</p>
+{table_html(["Table", "If you know… (X)", "…you know exactly (Y)"], [
+    ["customers", "customer_id, or email", "first_name, last_name, email, created_at, updated_at, status"],
+    ["addresses", "address_id, or (customer_id + type)", "customer_id, line1, line2, city, state, postal_code, country, type"],
+    ["products", "product_id, or product_name", "product_name, category, unit_price, stock_qty, created_at, updated_at"],
+    ["orders", "order_id", "customer_id, order_date, total_amount, status, created_at, updated_at"],
+    ["order_items", "order_item_id, or (order_id + product_id)", "order_id, product_id, quantity, unit_price, line_total, created_at"],
+    ["payments", "payment_id, or transaction_ref", "order_id, method, amount, paid_at, status, transaction_ref"],
+])}
+<p>Some stored values are copies that could be worked out from other data. We keep them on purpose and guard them:</p>
 <ul>
-  <li><strong>1NF.</strong> Every attribute is atomic. The repeating product group became separate <code>order_items</code> rows, and addresses became their own relation.</li>
-  <li><strong>2NF.</strong> Every relation has a single-attribute primary key, so partial dependencies on part of a composite key cannot occur. In <code>order_items</code>, the alternate key (order_id, product_id) determines the whole row. Product attributes such as name and category are not stored there, because they depend only on product_id. They live in <code>products</code>.</li>
-  <li><strong>3NF.</strong> No non-key attribute depends on another non-key attribute. Customer data is not copied into orders, and payment data is not copied into orders.</li>
-  <li><strong>BCNF.</strong> In every relation, the determinant of every non-trivial FD (listed above) is a candidate key. So every relation is in BCNF.</li>
-</ul>
-<h3>5.4 Controlled redundancy</h3>
-<p>Three stored values are deliberate redundancies:</p>
-<ul>
-  <li><strong><code>order_items.unit_price</code></strong> is the historical price at the time of sale. It is not the current <code>products.unit_price</code>, so it is a separate fact and not redundant.</li>
-  <li><strong><code>order_items.line_total</code></strong> is derived. It is kept consistent by <code>CHECK (line_total = ROUND(quantity * unit_price, 2))</code>.</li>
-  <li><strong><code>orders.total_amount</code></strong> is derived from the order's lines. It is stored for fast reporting, and query Q9 checks it against the lines (it returns 0 rows for the sample data).</li>
+  <li><code>line_total</code> is checked by a CHECK rule to equal quantity × price.</li>
+  <li><code>order_items.unit_price</code> is the price paid on the day of the sale, which can differ from today's catalogue price.</li>
+  <li><code>total_amount</code> on each order is checked against the sum of its lines by query Q9.</li>
 </ul>
 
 <h2>6. Advanced SQL Implementation and Query Design</h2>
-<h3>6.1 DDL implementation</h3>
-<p>The full DDL is in <code>database/schema.sql</code>:</p>
+<h3>6.1 Building the database (DDL)</h3>
+<p>The tables are created by <code>database/schema.sql</code>, which contains:</p>
 <ul>
-  <li>six tables with PRIMARY KEY, FOREIGN KEY (CASCADE and RESTRICT), UNIQUE, NOT NULL, DEFAULT and named CHECK constraints;</li>
-  <li>six secondary indexes;</li>
-  <li>the <code>order_summary</code> view.</li>
+  <li>6 tables, each with a <strong>PRIMARY KEY</strong>;</li>
+  <li><strong>FOREIGN KEY</strong> links with <strong>ON DELETE CASCADE</strong>;</li>
+  <li><strong>UNIQUE</strong> rules (email, product name, transaction reference);</li>
+  <li><strong>CHECK</strong> rules (prices &gt; 0, valid status values, line_total = quantity × price);</li>
+  <li>indexes for speed and one <strong>view</strong>.</li>
 </ul>
-<p>The script is portable SQL, tested on SQLite {sqlite3.sqlite_version} and written to run on PostgreSQL.</p>
-<p>Sample data is in <code>database/seed.sql</code>: {", ".join(f"{t} {n}" for t, n in counts.items())} rows. It is loaded in one transaction.</p>
-<h3>6.2 Queries and their outputs</h3>
-<p>The fourteen queries below are documented in <code>database/queries.sql</code>. Their outputs were produced by running them on the seeded database.</p>
-{query_section(db)}
-<h3>6.3 SQL on the distributed engine</h3>
-<p>The Raft-replicated engine supports:</p>
+<p><code>database/seed.sql</code> fills the tables with sample data: 10 customers, 10 addresses, 10 products, 10 orders, 12 order items and 10 payments.</p>
+<h3>6.2 The 14 documented queries</h3>
+<p>All queries are in <code>database/queries.sql</code>, each with a comment saying what it does. They cover multi-table joins, subqueries, GROUP BY with aggregates, HAVING, a window function, a view, CASE and UNION.</p>
+{listing}
+<h3>6.3 Four example queries with their real output</h3>
+{examples}
+<h3>6.4 Transactions and safe queries on our distributed database</h3>
 <ul>
-  <li><code>CREATE TABLE</code>, <code>INSERT</code>, <code>UPDATE</code>, <code>DELETE</code> and <code>DROP TABLE</code>;</li>
-  <li><code>SELECT</code> with <code>WHERE</code> (AND, OR, LIKE and comparisons), a two-table inner equi-<code>JOIN</code>, <code>GROUP BY</code>, <code>HAVING</code>, <code>COUNT/SUM/AVG/MIN/MAX</code>, <code>ORDER BY</code>, <code>LIMIT</code> and <code>OFFSET</code>;</li>
-  <li>multi-statement transactions through <code>/transaction</code>.</li>
+  <li><strong>Transactions.</strong> Several statements (for example: create the order, add its items, record the payment) are sent together. Raft copies them as one unit, and every node runs them. If any statement fails, all of them are undone on every node, thanks to MVCC.</li>
+  <li><strong>Parameterized queries.</strong> The user's input is sent separately from the SQL text, as <code>WHERE email = ?</code> plus the value. A hacking attempt like <code>x' OR '1'='1</code> is treated as a plain piece of text and matches 0 rows. Our tests check this.</li>
 </ul>
-<p>Client values are always sent as bound parameters (<code>?</code> placeholders with a <code>params</code> array). The engine hex-encodes every string literal before parsing, so a value can never be read as SQL. Section 6.4 shows an injection attempt returning 0 rows.</p>
-<h3>6.4 Live cluster output</h3>
-{md_to_html((results / "cluster_demo.md").read_text(encoding="utf-8"))}
 
-<h2>7. ER Diagram and UML Diagram</h2>
+<h2 class="page">7. ER Diagram and UML Diagram</h2>
 <h3>7.1 ER diagram</h3>
-{mermaid("supermarket_er.mmd")}
-<p class="label">Figure 7.1: Entity-relationship diagram (PK = primary key, FK = foreign key, UK = unique key)</p>
+<p>Boxes are tables. PK marks the primary key, FK a foreign key and UK a unique column. The line ends show how many: one, or many.</p>
+{mermaid("ecommerce_er.mmd")}
 <h3>7.2 UML class diagram</h3>
-{mermaid("supermarket_uml.mmd")}
-<p class="label">Figure 7.2: UML class diagram of the supermarket domain (composition shows ownership with cascading delete)</p>
+{mermaid("ecommerce_uml.mmd")}
 
 <h2>8. Relational Schema</h2>
-<p>Notation: <u>underline</u> = primary key, <em>italic</em> = foreign key.</p>
-<pre><code>CUSTOMERS  (<u>customer_id</u>, first_name, last_name, email UNIQUE, created_at, updated_at, status)
-ADDRESSES  (<u>address_id</u>, <em>customer_id</em> → CUSTOMERS, line1, line2, city, state, postal_code, country, type)
-             UNIQUE (customer_id, type)
-PRODUCTS   (<u>product_id</u>, product_name UNIQUE, category, unit_price, stock_qty, created_at, updated_at)
-ORDERS     (<u>order_id</u>, <em>customer_id</em> → CUSTOMERS, order_date, total_amount, status, created_at, updated_at)
-ORDER_ITEMS(<u>order_item_id</u>, <em>order_id</em> → ORDERS, <em>product_id</em> → PRODUCTS, quantity, unit_price, line_total, created_at)
-             UNIQUE (order_id, product_id)
-PAYMENTS   (<u>payment_id</u>, <em>order_id</em> → ORDERS, method, amount, paid_at, status, transaction_ref UNIQUE)</code></pre>
-{table_html(["Foreign key", "References", "On delete", "Reason"], [
-    ["addresses.customer_id", "customers.customer_id", "CASCADE", "Addresses exist only for their customer"],
-    ["orders.customer_id", "customers.customer_id", "CASCADE", "Removing a customer removes their order history"],
-    ["order_items.order_id", "orders.order_id", "CASCADE", "Lines are part of the order"],
-    ["order_items.product_id", "products.product_id", "RESTRICT", "A product that was sold cannot be deleted"],
-    ["payments.order_id", "orders.order_id", "CASCADE", "Payments belong to the order"],
+<p>Notation: <u>underlined</u> = primary key, <em>italic</em> = foreign key (with the table it points to).</p>
+<pre><code>CUSTOMERS   (<u>customer_id</u>, first_name, last_name, email UNIQUE, created_at, updated_at, status)
+ADDRESSES   (<u>address_id</u>, <em>customer_id</em> → CUSTOMERS, line1, line2, city, state, postal_code, country, type)
+PRODUCTS    (<u>product_id</u>, product_name UNIQUE, category, unit_price, stock_qty, created_at, updated_at)
+ORDERS      (<u>order_id</u>, <em>customer_id</em> → CUSTOMERS, order_date, total_amount, status, created_at, updated_at)
+ORDER_ITEMS (<u>order_item_id</u>, <em>order_id</em> → ORDERS, <em>product_id</em> → PRODUCTS, quantity, unit_price, line_total, created_at)
+PAYMENTS    (<u>payment_id</u>, <em>order_id</em> → ORDERS, method, amount, paid_at, status, transaction_ref UNIQUE)</code></pre>
+{table_html(["Foreign key", "Points to", "When the parent row is deleted"], [
+    ["addresses.customer_id", "customers", "Addresses are deleted too (CASCADE)"],
+    ["orders.customer_id", "customers", "Orders are deleted too (CASCADE)"],
+    ["order_items.order_id", "orders", "Order lines are deleted too (CASCADE)"],
+    ["order_items.product_id", "products", "Blocked: a product that was sold cannot be deleted (RESTRICT)"],
+    ["payments.order_id", "orders", "Payments are deleted too (CASCADE)"],
 ])}
 
 <h2>9. Database Tables</h2>
-<p>Table structures, attributes, keys and constraints below are read back from the created database. Sample records come from <code>data/sample_db</code>.</p>
-{schema_details(db)}
+<p>The structure below is read back directly from the created database. All sample records are in <code>data/sample_db/</code>.</p>
+{table_details(db)}
 
 <h2>10. Conclusion and Future Scope</h2>
 <h3>10.1 Conclusion</h3>
-<p>The project meets its objectives:</p>
 <ul>
-  <li><strong>Relational design.</strong> The supermarket database is normalized to BCNF and fully constrained. Automated tests check every class of constraint.</li>
-  <li><strong>SQL.</strong> Fourteen documented queries cover multi-table joins, correlated, nested and EXISTS subqueries, GROUP BY/HAVING, window functions, a CTE, a view, CASE and UNION.</li>
-  <li><strong>Distributed engine.</strong> The same data runs on a database we built ourselves. Every node is an independent process. Writes commit only on a Raft majority, and transactions are all-or-nothing on every replica. Reads are linearizable. Client input is always parameterized.</li>
-  <li><strong>Fault tolerance.</strong> In the failover demo (Appendix A), killing the leader caused an automatic election in under 2 seconds. A write sent at that moment still committed, and the restarted node caught up from its own durable log.</li>
+  <li>We built a working <strong>NewSQL database</strong>: normal SQL tables, copied across 3 computers.</li>
+  <li><strong>Raft</strong> makes sure a change is saved only when most computers agree. In our crash test we killed the leader, a new leader took over in under 2 seconds, and no order was lost.</li>
+  <li><strong>MVCC transactions</strong> let shoppers read clean, consistent data while others buy, and make a group of changes all-or-nothing.</li>
+  <li>The e-commerce schema is <strong>normalized (3NF, in fact BCNF)</strong> and protected with primary keys, foreign keys, UNIQUE and CHECK rules.</li>
+  <li>Everything is checked automatically by Go tests, 16 SQL tests and a live failover demo (see the appendix).</li>
 </ul>
 <h3>10.2 Future scope</h3>
 <ul>
-  <li>Enforce FOREIGN KEY, UNIQUE and CHECK constraints inside the distributed engine. Today they are enforced in the reference SQL schema.</li>
-  <li>Support subqueries and joins of more than two tables in the distributed engine, using a cost-based planner.</li>
-  <li>Split data into ranges, each with its own Raft group (multi-Raft sharding), so write throughput scales beyond one leader.</li>
-  <li>Allow nodes to join and leave a running cluster.</li>
-  <li>Add TLS between nodes and clients, plus authentication and role-based authorization.</li>
-  <li>Store data in an on-disk LSM storage engine with typed columns and secondary indexes.</li>
+  <li>Enforce foreign keys, UNIQUE and CHECK rules inside our own distributed engine, and support subqueries there too.</li>
+  <li>Split large tables across different groups of computers (sharding), so writes also scale with more machines.</li>
+  <li>Add logins, passwords and encrypted connections.</li>
 </ul>
 
-<h2>Appendix A: Testing and Validation</h2>
-{table_html(["Suite", "Command", "What it proves"], [
-    ["Go unit and integration tests", "go test ./...", "MVCC snapshot isolation and conflicts; SQL CRUD, filters, grouping, joins; parameter binding blocks injection; the WAL stays correct after rollback; a 3-node Raft cluster over TCP replicates, fails over and recovers from its log"],
-    ["Schema tests (16)", "python -m unittest discover -s database -v", "Seed counts; no dangling FKs; PK, UNIQUE, FK, RESTRICT and 8 CHECK rules reject bad rows; ON DELETE CASCADE removes dependents; every documented query runs and returns the expected rows"],
-    ["Cluster smoke test", "scripts/smoke.ps1 or scripts/smoke.sh", "Waits for a leader, then runs DDL, DML, a transaction and a read through the HTTP API"],
-    ["Cluster seed and demo", "python database/seed_cluster.py", "Loads all six tables through parameterized transactions and records the query outputs"],
+<h2>Appendix: Testing and Demonstration</h2>
+{table_html(["Test", "Command", "What it proves"], [
+    ["Engine tests (Go)", "go test ./...", "MVCC isolation; SQL commands; SQL-injection safety; 3 computers copy data, survive a leader crash and recover"],
+    ["Database tests (16)", "python -m unittest discover -s database -v", "Keys, foreign keys, UNIQUE and CHECK rules reject bad data; CASCADE deletes work; every query gives the right answer"],
+    ["Live demo", "scripts/cluster.ps1, then python database/seed_cluster.py", "Starts 3 computers, loads the e-commerce data and runs queries on them"],
 ])}
-<h3>A.1 Failover demonstration</h3>
-{md_to_html((results / "failover_demo.md").read_text(encoding="utf-8"))}
-<h3>A.2 Screenshots</h3>
-{image("ui-join-query.png", "Figure A.1: React console running a join on the live cluster")}
-{image("ui-group-by.png", "Figure A.2: GROUP BY with aggregates on the live cluster")}
-
-<h2>Appendix B: Setup and Demonstration</h2>
-<ol>
-  <li>Install Go 1.26 or newer, Python 3.10 or newer and Node.js 18 or newer. Docker Desktop is optional.</li>
-  <li>Clone the repository: <code>git clone {e(team["github"])}</code></li>
-  <li>Run the tests: <code>go test ./...</code> and <code>python -m unittest discover -s database -v</code></li>
-  <li>Build the reference database and record query outputs: <code>python database/run_queries.py --db database/supermarket.db</code></li>
-  <li>Start a three-node cluster with <code>scripts/cluster.ps1</code> (Windows), <code>scripts/cluster.sh</code> (Linux/macOS) or <code>docker compose up -d --build</code>.</li>
-  <li>Create and populate the tables on the cluster: <code>python database/seed_cluster.py</code></li>
-  <li>Start the UI: <code>cd frontend &amp;&amp; npm ci &amp;&amp; npm run dev</code>, then open <code>http://localhost:5173</code></li>
-  <li>Demonstrate failover. Find the leader with <code>GET /health</code>, stop that process or container, then send a write to another node. It still commits. Restart the stopped node and confirm it catches up.</li>
-</ol>
+{image("ui-join-query.png", "Web console running a JOIN on the live 3-node cluster")}
 
 <script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
-<script>mermaid.initialize({{ startOnLoad: true, theme: "neutral", er: {{ useMaxWidth: true }}, flowchart: {{ useMaxWidth: true }} }});</script>
+<script>mermaid.initialize({{ startOnLoad: true, theme: "neutral" }});</script>
 </body></html>"""
     out_html = REPORT / "report.html"
     out_html.write_text(page, encoding="utf-8")
