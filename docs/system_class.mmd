@@ -1,0 +1,54 @@
+classDiagram
+  direction TB
+  class HTTPServer {
+    +POST_query()
+    +POST_transaction()
+    +GET_tables()
+    +GET_health()
+    +GET_ready()
+    -onLeader(handler)
+    -apply(command) error
+  }
+  class Node {
+    +ID string
+    +IsLeader() bool
+    +Leader() Peer
+    +WaitForLeader(timeout) Peer
+    +Apply(command, timeout) error
+    +ConsistentRead(timeout) error
+    +Status() map
+    +Close() error
+  }
+  class Engine {
+    +Execute(statement) Result
+    +Bind(statement, params) string
+  }
+  class MVCC {
+    +Begin() Transaction
+    +Commit() error
+    +Rollback()
+  }
+  class Store {
+    +Put(key, value) error
+    +Get(key) bytes
+    +Scan(prefix) map
+    +Snapshot() bytes
+    +Restore(bytes) error
+  }
+  class WAL {
+    +Append(record) error
+    +Replay(fn) error
+    +Rewrite(data) error
+  }
+  class HashicorpRaft {
+    +TCPTransport
+    +BoltDBLogStore
+    +FileSnapshotStore
+  }
+  HTTPServer --> Node : replicate writes
+  HTTPServer --> Engine : execute reads
+  Node --> HashicorpRaft : wraps
+  HashicorpRaft ..> HTTPServer : FSM apply
+  Engine --> MVCC : row versions
+  Engine --> Store : schema and rows
+  Store --> WAL : fsync before apply

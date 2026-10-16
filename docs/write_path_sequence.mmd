@@ -1,0 +1,18 @@
+sequenceDiagram
+  autonumber
+  participant C as Client
+  participant F as Follower node
+  participant L as Leader node
+  participant P as Other replicas
+  participant S as SQL engine + store (each node)
+  C->>F: POST /transaction {statements, statement_params}
+  F->>F: leader known? (wait up to 5 s)
+  F->>L: forward request
+  L->>L: Bind(?) parameters -> one Raft log entry
+  L->>P: AppendEntries over TCP
+  P-->>L: ack once written to BoltDB log
+  L->>L: majority reached -> committed
+  L->>S: FSM apply: run batch, roll back all on any error
+  P->>S: FSM apply in the same log order
+  L-->>F: 200 {"message":"transaction committed"}
+  F-->>C: 200 {"message":"transaction committed"}

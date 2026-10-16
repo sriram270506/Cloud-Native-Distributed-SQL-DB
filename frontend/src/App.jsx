@@ -12,16 +12,11 @@ function parseCSV(text) {
   })
 }
 
-function quote(value) {
-  return `'${String(value ?? '').replace(/'/g, "''")}'`
-}
-
-function createInsert(table, columns, row) {
-  return `INSERT INTO ${table} (${columns.join(', ')}) VALUES (${columns.map(column => quote(row[column])).join(', ')})`
-}
+// A ?sql= link opens the console with that query and runs it.
+const INITIAL_SQL = new URLSearchParams(window.location.search).get('sql')
 
 export default function App() {
-  const [sql, setSql] = useState('SELECT category, COUNT(*) AS products, SUM(stock_qty) AS units FROM products GROUP BY category ORDER BY units DESC')
+  const [sql, setSql] = useState(INITIAL_SQL || 'SELECT category, COUNT(*) AS products, SUM(stock_qty) AS units FROM products GROUP BY category ORDER BY units DESC')
   const [result, setResult] = useState(null)
   const [tables, setTables] = useState([])
   const [status, setStatus] = useState('Checking connection')
@@ -40,7 +35,7 @@ export default function App() {
   }
 
   useEffect(() => {
-    refreshTables().catch(() => setStatus('Backend offline'))
+    refreshTables().then(() => INITIAL_SQL && executeQuery()).catch(() => setStatus('Backend offline'))
   }, [])
 
   async function executeQuery() {
@@ -79,14 +74,14 @@ export default function App() {
         const rows = parseCSV(await response.text())
         if (!rows.length) continue
         const columns = Object.keys(rows[0])
-        const statements = [
-          `CREATE TABLE ${table} (${columns.map(column => `${column} TEXT`).join(', ')})`,
-          ...rows.map(row => createInsert(table, columns, row))
-        ]
+        // Row values travel as bound parameters, never inside the SQL text.
+        const insert = `INSERT INTO ${table} (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`
+        const statements = [`CREATE TABLE ${table} (${columns.map(column => `${column} TEXT`).join(', ')})`, ...rows.map(() => insert)]
+        const statement_params = [[], ...rows.map(row => columns.map(column => row[column] ?? ''))]
         const transaction = await fetch(`${API}/transaction`, {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({statements})
+          body: JSON.stringify({statements, statement_params})
         })
         if (!transaction.ok && !/already|exists/i.test(await transaction.text())) {
           throw new Error(`Could not load ${table}`)

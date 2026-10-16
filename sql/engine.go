@@ -1,8 +1,10 @@
 package sql
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
 	"regexp"
 	"sort"
 	"strconv"
@@ -36,6 +38,10 @@ func (e *Engine) Execute(statement string) (Result, error) {
 	statement = strings.TrimSpace(strings.TrimSuffix(statement, ";"))
 	if statement == "" {
 		return Result{}, fmt.Errorf("empty SQL statement")
+	}
+	statement, err := maskLiterals(statement)
+	if err != nil {
+		return Result{}, err
 	}
 	lower := strings.ToLower(statement)
 	switch {
@@ -397,10 +403,10 @@ func mergeAggregates(row map[string]string, rows []map[string]string, aggregates
 		}
 		switch item.function {
 		case "sum":
-			row[item.name] = strconv.FormatFloat(total, 'f', -1, 64)
+			row[item.name] = formatNumber(total)
 		case "avg":
 			if len(values) > 0 {
-				row[item.name] = strconv.FormatFloat(total/float64(len(values)), 'f', -1, 64)
+				row[item.name] = formatNumber(total / float64(len(values)))
 			}
 		case "min", "max":
 			if len(values) > 0 {
@@ -409,7 +415,7 @@ func mergeAggregates(row map[string]string, rows []map[string]string, aggregates
 				if item.function == "max" {
 					index = len(values) - 1
 				}
-				row[item.name] = strconv.FormatFloat(values[index], 'f', -1, 64)
+				row[item.name] = formatNumber(values[index])
 			}
 		}
 	}
@@ -597,7 +603,13 @@ func contains(values []string, target string) bool {
 func unquote(value string) string {
 	value = strings.TrimSpace(value)
 	if len(value) >= 2 && value[0] == '\'' && value[len(value)-1] == '\'' {
-		return strings.ReplaceAll(value[1:len(value)-1], "''", "'")
+		body := value[1 : len(value)-1]
+		if strings.HasPrefix(body, literalMarker) {
+			if decoded, err := hex.DecodeString(body[len(literalMarker):]); err == nil {
+				return string(decoded)
+			}
+		}
+		return strings.ReplaceAll(body, "''", "'")
 	}
 	return value
 }
@@ -627,4 +639,9 @@ func (e *Engine) Tables() []Table {
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
 	return result
+}
+
+// formatNumber drops binary floating-point noise such as 929.8800000000001 from aggregates.
+func formatNumber(value float64) string {
+	return strconv.FormatFloat(math.Round(value*1e9)/1e9, 'f', -1, 64)
 }

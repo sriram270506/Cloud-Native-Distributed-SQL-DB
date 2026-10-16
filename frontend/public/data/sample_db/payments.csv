@@ -1,11 +1,11 @@
 payment_id,order_id,method,amount,paid_at,status,transaction_ref
-1,1,card,59.97,2024-06-01,paid,tx1001
+1,1,card,29.97,2024-06-01,paid,tx1001
 2,2,card,29.99,2024-06-02,paid,tx1002
 3,3,paypal,9.99,2024-06-03,paid,tx1003
-4,4,card,264.98,2024-06-04,paid,tx1004
+4,4,card,204.98,2024-06-04,paid,tx1004
 5,5,card,14.99,2024-06-05,paid,tx1005
-6,6,card,109.97,2024-06-06,paid,tx1006
+6,6,card,99.98,2024-06-06,paid,tx1006
 7,7,paypal,6.99,2024-06-07,paid,tx1007
 8,8,card,199.99,2024-06-08,paid,tx1008
-9,9,card,319.98,2024-06-09,paid,tx1009
+9,9,card,299.99,2024-06-09,paid,tx1009
 10,10,card,49.99,2024-06-10,paid,tx1010

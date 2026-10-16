@@ -1,5 +1,7 @@
 # Cloud-Native Distributed SQL Database: Raft, MVCC, WAL, and SQL Engine Explained
 
+> **Scope note:** this is a conceptual viva Q&A. Where it mentions BadgerDB or an LSM engine it describes the general design space. The implemented system uses a BoltDB Raft log, a JSON-lines WAL and an in-memory MVCC store; see [ARCHITECTURE.md](../ARCHITECTURE.md).
+
 This document explains the design implied by the project: a distributed SQL database built around Raft consensus, a replicated log, a durable embedded KV store, MVCC-based snapshot reads, and a SQL layer on top of an LSM-backed storage engine. The project appears to be an educational/implementation-oriented design rather than a finished production system, but the architecture is realistic and maps directly to the questions below.
 
 ## High-level architecture

@@ -33,8 +33,10 @@ const (
 )
 
 type request struct {
-	SQL        string   `json:"sql"`
-	Statements []string `json:"statements"`
+	SQL        string          `json:"sql"`
+	Params     []interface{}   `json:"params"`
+	Statements []string        `json:"statements"`
+	StmtParams [][]interface{} `json:"statement_params"`
 }
 
 type server struct {
@@ -281,16 +283,21 @@ func (s *server) handleQuery(writer http.ResponseWriter, httpRequest *http.Reque
 		http.Error(writer, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(body.SQL)), "select") {
+	statement, err := dbsql.Bind(body.SQL, body.Params)
+	if err != nil {
+		http.Error(writer, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(statement)), "select") {
 		if err := s.node.ConsistentRead(applyTimeout); err != nil {
 			http.Error(writer, err.Error(), http.StatusServiceUnavailable)
 			return
 		}
-		result, err := s.db.Execute(body.SQL)
+		result, err := s.db.Execute(statement)
 		writeResult(writer, result, err)
 		return
 	}
-	if err := s.node.Apply(mustJSON([]string{body.SQL}), applyTimeout); err != nil {
+	if err := s.node.Apply(mustJSON([]string{statement}), applyTimeout); err != nil {
 		http.Error(writer, err.Error(), http.StatusConflict)
 		return
 	}
@@ -307,7 +314,24 @@ func (s *server) handleTransaction(writer http.ResponseWriter, httpRequest *http
 		http.Error(writer, "statements required", http.StatusBadRequest)
 		return
 	}
-	if err := s.node.Apply(mustJSON(body.Statements), applyTimeout); err != nil {
+	if len(body.StmtParams) != 0 && len(body.StmtParams) != len(body.Statements) {
+		http.Error(writer, "statement_params must have one entry per statement", http.StatusBadRequest)
+		return
+	}
+	statements := make([]string, len(body.Statements))
+	for i, statement := range body.Statements {
+		var params []interface{}
+		if len(body.StmtParams) != 0 {
+			params = body.StmtParams[i]
+		}
+		bound, err := dbsql.Bind(statement, params)
+		if err != nil {
+			http.Error(writer, fmt.Sprintf("statement %d: %v", i+1, err), http.StatusBadRequest)
+			return
+		}
+		statements[i] = bound
+	}
+	if err := s.node.Apply(mustJSON(statements), applyTimeout); err != nil {
 		http.Error(writer, err.Error(), http.StatusConflict)
 		return
 	}
